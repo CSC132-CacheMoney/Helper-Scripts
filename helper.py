@@ -17,7 +17,7 @@ current_clone_dir = None
 
 def get_remote_sha():
     result = subprocess.run(
-        ["git", "ls-remote", REPO_URL, f"refs/heads/{BRANCH}"],
+        ["git", "ls-remote", REPO_URL, f"refs/heads/{BRANCH}"]
         capture_output=True, text=True, timeout=30
     )
     if result.returncode != 0 or not result.stdout.strip():
