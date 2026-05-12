@@ -4,6 +4,7 @@ import time
 import shutil
 import os
 import signal
+import tempfile
 
 
 REPO_URL = "https://github.com/CSC132-CacheMoney/TBox.git"
@@ -13,11 +14,12 @@ CHECK_INTERVAL = 300  # 5 minutes
 
 current_process = None
 current_clone_dir = None
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def get_remote_sha():
     result = subprocess.run(
-        ["git", "ls-remote", REPO_URL, f"refs/heads/{BRANCH}"]
+        ["git", "ls-remote", REPO_URL, f"refs/heads/{BRANCH}"],
         capture_output=True, text=True, timeout=30
     )
     if result.returncode != 0 or not result.stdout.strip():
@@ -25,23 +27,36 @@ def get_remote_sha():
     return result.stdout.split()[0]
 
 
-def clone_repo(target_dir):
+def clone_repo(target_dir, env_source_dir=None):
+    env_backup = None
+    if env_source_dir:
+        env_file = os.path.join(env_source_dir, ".env")
+        if os.path.exists(env_file):
+            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                shutil.copy2(env_file, tmp.name)
+                env_backup = tmp.name
+    
     if os.path.exists(target_dir):
         shutil.rmtree(target_dir)
     result = subprocess.run(
         ["git", "clone", "--depth=1", "--branch", BRANCH, REPO_URL, target_dir],
         capture_output=True, text=True, timeout=120
     )
+    
+    if result.returncode == 0 and env_backup:
+        shutil.copy2(env_backup, os.path.join(target_dir, ".env"))
+        os.unlink(env_backup)
+    
     return result.returncode == 0
 
 
 def start_app(clone_dir):
-    main_py = os.path.join(clone_dir, "main.py")
+    main_py = os.path.join(clone_dir, "backend", "main.py")
     if not os.path.exists(main_py):
-        print(f"[helper] main.py not found in {clone_dir}", flush=True)
+        print(f"[helper] backend/main.py not found in {clone_dir}", flush=True)
         return None
-    proc = subprocess.Popen([sys.executable, main_py], cwd=clone_dir)
-    print(f"[helper] Started main.py (pid {proc.pid})", flush=True)
+    proc = subprocess.Popen([sys.executable, main_py], cwd=os.path.join(clone_dir, "backend"))
+    print(f"[helper] Started backend/main.py (pid {proc.pid})", flush=True)
     return proc
 
 
@@ -69,7 +84,7 @@ def main():
         sys.exit(1)
 
     current_clone_dir = os.path.join(CLONE_BASE, "active")
-    if clone_repo(current_clone_dir):
+    if clone_repo(current_clone_dir, SCRIPT_DIR):
         current_process = start_app(current_clone_dir)
     else:
         print("[helper] Initial clone failed.", flush=True)
@@ -92,7 +107,7 @@ def main():
         print("[helper] Cloning new version...", flush=True)
 
         new_clone_dir = os.path.join(CLONE_BASE, "staging")
-        if not clone_repo(new_clone_dir):
+        if not clone_repo(new_clone_dir, current_clone_dir):
             print("[helper] Clone failed, keeping current version.", flush=True)
             continue
 
